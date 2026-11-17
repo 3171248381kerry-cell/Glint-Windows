@@ -1,0 +1,28 @@
+{
+  "files": {
+    "model/config.json": {
+      "sizeBytes": 231,
+      "sha256": "95dabd564e6abdb470e95f9106766647d8dc59e1bc2a1517d292c0cee5ca5812"
+    },
+    "model/model.bin": {
+      "sizeBytes": 218915789,
+      "sha256": "54de5bed49ffd159cfcf06d1d74e6346f613fcf0c3d029a8c246b9afafe16b82"
+    },
+    "model/source.spm": {
+      "sizeBytes": 719585,
+      "sha256": "ccc8f70bef6e04fc6a57119b2a4a59556d5c5b9f9f04b88be2f0656c6d7d192d"
+    },
+    "model/source_vocabulary.json": {
+      "sizeBytes": 589126,
+      "sha256": "8d17762d08f0d26cf4639bc37e4975c2bbfbbf1dddcadf2aa0f7479b66a8fa1f"
+    },
+    "model/target.spm": {
+      "sizeBytes": 802604,
+      "sha256": "04bcec8d949fc7b2aacc38e428f297160457b373f3f85ad7c8faf391138d937b"
+    },
+    "model/target_vocabulary.json": {
+      "sizeBytes": 757643,
+      "sha256": "14d37f95d567cbe2d2fb5e0e8c69e9e887dfbff068d85dfb698c9c6c521bec89"
+    }
+  }
+}

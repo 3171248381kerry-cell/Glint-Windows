@@ -1,0 +1,53 @@
+{
+  "id": "opus-0.1.0-win-v1",
+  "python": {
+    "filename": "python-3.12.10-embed-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
+    "sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"
+  },
+  "wheels": [
+    {
+      "filename": "ctranslate2-4.8.3-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/db/f8/1aec2aaf0e8a09987085dd2e4a876619fee6026f20ed28a2c2efc6235bec/ctranslate2-4.8.3-cp312-cp312-win_amd64.whl",
+      "sha256": "b5daf0758d522a422c76e53eb02ce9f42465a9aba938a86b27249fb5db2571b9"
+    },
+    {
+      "filename": "sentencepiece-0.2.2-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/8d/11/753fca2e6b109be3ab7867abf357dfe48677fe726ae5a5363d0b54ca9450/sentencepiece-0.2.2-cp312-cp312-win_amd64.whl",
+      "sha256": "7c6e7bf684dc12145bfa685d3060beaea55139134ba848289bee514ed42e7383"
+    },
+    {
+      "filename": "numpy-2.3.3-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/32/ee/de999f2625b80d043d6d2d628c07d0d5555a677a3cf78fdf868d409b8766/numpy-2.3.3-cp312-cp312-win_amd64.whl",
+      "sha256": "497d7cad08e7092dba36e3d296fe4c97708c93daf26643a1ae4b03f6294d30eb"
+    },
+    {
+      "filename": "pyyaml-6.0.3-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/86/bf/899e81e4cce32febab4fb42bb97dcdf66bc135272882d1987881a4b519e9/pyyaml-6.0.3-cp312-cp312-win_amd64.whl",
+      "sha256": "5fcd34e47f6e0b794d17de1b4ff496c00986e1c83f7ab2fb8fcfe9616ff7477b"
+    },
+    {
+      "filename": "setuptools-80.9.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl",
+      "sha256": "062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"
+    }
+  ],
+  "reading": [
+    {
+      "filename": "fugashi-1.5.2-cp312-cp312-win_amd64.whl",
+      "url": "https://files.pythonhosted.org/packages/d7/ce/b18879c94c6267981a65792045321a1d71b849893b40d7e8356e0b55542c/fugashi-1.5.2-cp312-cp312-win_amd64.whl",
+      "sha256": "936d710166c5b05064ec2ce0eb347fff7a0cf102c33989012fad205346943402"
+    },
+    {
+      "filename": "unidic-lite-1.0.8.tar.gz",
+      "url": "https://files.pythonhosted.org/packages/55/2b/8cf7514cb57d028abcef625afa847d60ff1ffbf0049c36b78faa7c35046f/unidic-lite-1.0.8.tar.gz",
+      "sha256": "db9d4572d9fdd4d00a97949d4b0741ec480ee05a7e7e2e32f547500dae27b245"
+    }
+  ],
+  "model": {
+    "filename": "mt-opus-zh-en-0.1.0.zip",
+    "url": "https://github.com/jsogn/Glint/releases/download/model-opus-v0.1.0/mt-opus-zh-en-0.1.0.zip",
+    "sha256": "8534668d6b05818ff018f242811a7bcfba86f4a89a19db0ccdcb9c98033f6dc3",
+    "sizeBytes": 70603977
+  }
+}

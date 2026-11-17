@@ -26,7 +26,6 @@ public struct TranslationMemoKey: Hashable, Sendable {
 
 private struct LRUCache<Key: Hashable, Value> {
     private struct Node {
-        let key: Key
         let value: Value
         let cost: Int
         var previous: Key?
@@ -73,7 +72,6 @@ private struct LRUCache<Key: Hashable, Value> {
         }
 
         let node = Node(
-            key: key,
             value: value,
             cost: cost,
             previous: newest,

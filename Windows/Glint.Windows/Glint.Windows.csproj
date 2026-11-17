@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>Glint.Windows</RootNamespace>
+    <AssemblyName>Glint</AssemblyName>
+    <Version>0.1.6</Version>
+    <Authors>Glint contributors</Authors>
+    <Description>Glint for Windows — 输入中文，查看英语、日语或韩语译文。</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/glint.ico</ApplicationIcon>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+  <Target Name="BuildWeTypeSink" BeforeTargets="BeforeBuild">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\build-wetype-sink.ps1&quot; &quot;$(TargetDir)&quot;" />
+  </Target>
+  <Target Name="BuildHudComposition" BeforeTargets="BeforeBuild">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\build-hud-composition.ps1&quot; &quot;$(TargetDir)&quot;" />
+  </Target>
+  <Target Name="PublishHudComposition" AfterTargets="Publish">
+    <Copy SourceFiles="$(TargetDir)HudComposition.dll" DestinationFolder="$(PublishDir)" />
+  </Target>
+  <ItemGroup>
+    <Reference Include="UIAutomationClient.Interop"><HintPath>Interop/UIAutomationClient.Interop.dll</HintPath><EmbedInteropTypes>true</EmbedInteropTypes></Reference>
+    <Resource Include="../../docs/assets/glint-logo.png" Link="Assets/glint-logo.png" />
+    <Content Include="../../Resources/Plugins/dict-cedict/**" Link="Data/dict-cedict/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../Resources/Plugins/dict-ecdict/**" Link="Data/dict-ecdict/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../Resources/OnlineModels/mt-opus-zh-en/model-lock.json" Link="Data/model-lock.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../Resources/Evaluation/dictionary-benchmark.json" Link="Data/dictionary-benchmark.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../Resources/OnlineModels/mt-opus-zh-en/ATTRIBUTION.md" Link="Data/OPUS-MT-ATTRIBUTION.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Runtime/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

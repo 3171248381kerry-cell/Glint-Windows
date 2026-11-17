@@ -287,12 +287,14 @@ public actor PluginCatalogService {
             ),
             force: true
         )
-        guard let archiveData = try? Data(contentsOf: archiveURL) else {
+        let digest: String
+        do {
+            digest = try Self.sha256(of: archiveURL)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
             throw PluginCatalogError.invalidResponse
         }
-        let digest = SHA256.hash(data: archiveData)
-            .map { String(format: "%02x", $0) }
-            .joined()
         guard manifest.sha256 != "REPLACE_ME", digest == manifest.sha256.lowercased() else {
             throw PluginCatalogError.checksumMismatch
         }

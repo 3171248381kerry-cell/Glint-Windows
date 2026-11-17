@@ -1,0 +1,18 @@
+{
+  "ja": {
+    "folder": "mt-opus-zh-ja",
+    "archive": {
+      "filename": "opusTCv20210807-sepvoc_transformer-big_2022-07-28.zip",
+      "url": "https://object.pouta.csc.fi/Tatoeba-MT-models/zho-jpn/opusTCv20210807-sepvoc_transformer-big_2022-07-28.zip",
+      "sha256": "bee6b96f9ab1abe50808374d926c2211798a2437ed684d700fc37f5da4d7d1da"
+    }
+  },
+  "ko": {
+    "folder": "mt-opus-zh-ko",
+    "archive": {
+      "filename": "opusTCv20210807-sepvoc_transformer-big_2022-09-15.zip",
+      "url": "https://object.pouta.csc.fi/Tatoeba-MT-models/zho-kor/opusTCv20210807-sepvoc_transformer-big_2022-09-15.zip",
+      "sha256": "576740f9e6e4cd741ee1a063db652b5c552ee1972de2a2e9af6ecceaefaba04a"
+    }
+  }
+}
