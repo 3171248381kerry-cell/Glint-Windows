@@ -39,7 +39,7 @@ macOS 原版的网站、GitHub Releases 和 Homebrew 属于上游项目。需要
 
 [直接下载 Windows x64 安装程序](https://github.com/3171248381kerry-cell/Glint-Windows/releases/download/v0.1.7/Glint-0.1.7-win-x64-setup.exe) · [GitHub 发布页](https://github.com/3171248381kerry-cell/Glint-Windows/releases/tag/v0.1.7)
 
-下载后双击安装程序。安装完成后可从开始菜单打开 Glint，立即使用内置英语词典。用微软拼音、微信输入法或豆包输入法输入 `nihao`，停在当前候选上即可查看译文。
+下载后双击安装程序。安装完成后可从开始菜单打开 Glint，立即使用内置英语词典。切换到微软拼音、微信输入法或豆包输入法，输入中文拼音并稍作停留，即可在候选栏旁看到当前高亮候选的译文。
 
 ## 特点
 
