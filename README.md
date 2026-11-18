@@ -4,6 +4,15 @@
 
 <h1 align="center">Glint Windows（非官方移植）</h1>
 
+<p align="center">
+  <a href="https://github.com/3171248381kerry-cell/Glint-Windows/releases/download/v0.1.7/Glint-0.1.7-win-x64-setup.exe">
+    <img alt="下载 Glint Windows 0.1.7 安装程序" src="https://img.shields.io/github/v/release/3171248381kerry-cell/Glint-Windows?filter=v0.1.7&amp;label=Download&amp;style=flat-square&amp;color=2F7DFF">
+  </a>
+  <img alt="Windows 10 22H2 或 Windows 11" src="https://img.shields.io/badge/Windows-10_22H2_%2F_11-24292F?style=flat-square">
+  <img alt="x64 架构" src="https://img.shields.io/badge/Architecture-x64-57606A?style=flat-square">
+  <img alt="本地离线" src="https://img.shields.io/badge/privacy-local_%26_offline-30363D?style=flat-square">
+</p>
+
 <p align="center">输入中文时，在拼音候选旁看英语、日语或韩语译文。不替换输入法。</p>
 
 <p align="center">
@@ -21,6 +30,8 @@
 **[https://github.com/jsogn/Glint](https://github.com/jsogn/Glint)**
 
 macOS 原版的网站、GitHub Releases 和 Homebrew 属于上游项目。需要官方 macOS 版时，请直接使用上面的原仓库。
+
+![Glint 演示封面](docs/assets/glint-video-cover-clean.jpg)
 
 ## 下载 Windows 版
 
