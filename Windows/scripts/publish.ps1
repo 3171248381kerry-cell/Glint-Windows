@@ -1,8 +1,19 @@
-param([ValidateSet('win-x64','win-arm64')][string]$Runtime = 'win-x64', [switch]$UseInstalledRuntime)
+param(
+    [ValidateSet('win-x64','win-arm64')][string]$Runtime = 'win-x64',
+    [switch]$UseInstalledRuntime,
+    [switch]$Installer,
+    [string]$InnoCompiler = 'ISCC.exe'
+)
 $ErrorActionPreference = 'Stop'
 $windowsRoot = Split-Path $PSScriptRoot -Parent
 $projectPath = Join-Path $windowsRoot 'Glint.Windows/Glint.Windows.csproj'
-$dist = Join-Path $windowsRoot "dist/Glint-0.1.6-$Runtime"
+$version = ([xml](Get-Content -LiteralPath $projectPath -Raw)).Project.PropertyGroup.Version
+$distRoot = Join-Path $windowsRoot 'dist'
+$dist = Join-Path $distRoot "Glint-$version-$Runtime"
+if ($Installer) {
+    if ($Runtime -ne 'win-x64') { throw 'The installer supports Windows x64.' }
+    $compiler = (Get-Command $InnoCompiler -CommandType Application).Source
+}
 if ($UseInstalledRuntime) {
     if ($Runtime -ne 'win-x64') { throw 'Installed runtime packaging requires this x64 host.' }
     & dotnet publish $projectPath -c Release -r $Runtime --self-contained false -p:NuGetAudit=false --source (Join-Path $env:USERPROFILE '.nuget/packages') -p:DebugType=None -o $dist --nologo
@@ -18,6 +29,8 @@ if ($UseInstalledRuntime) {
             else { Copy-Item -LiteralPath $_.FullName -Destination $dist -Force }
         }
     }
+    $licenseRoot = Join-Path $dist 'Data/DotNetLicenses'
+    Copy-Item -LiteralPath (Join-Path $dotnetRoot 'LICENSE.txt'), (Join-Path $dotnetRoot 'ThirdPartyNotices.txt') -Destination $licenseRoot
     Copy-Item -LiteralPath (Join-Path $dotnetRoot "host/fxr/$runtimeVersion/hostfxr.dll") -Destination $dist
     $configPath = Join-Path $dist 'Glint.runtimeconfig.json'
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
@@ -35,9 +48,16 @@ if ($UseInstalledRuntime) {
 }
 if ($LASTEXITCODE -ne 0) { throw 'Windows publish failed.' }
 Copy-Item -LiteralPath (Join-Path $windowsRoot 'README.md') -Destination (Join-Path $dist 'README.md')
-$archive = $dist + '.zip'
-Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $archive -Force
-$hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-Set-Content -LiteralPath ($archive + '.sha256') -Value ($hash + '  ' + (Split-Path $archive -Leaf)) -Encoding ascii
-Write-Output $archive
+if ($Installer) {
+    $installerScript = Join-Path $windowsRoot 'installer/Glint.iss'
+    & $compiler "/DGlintVersion=$version" "/DGlintPayload=$dist" "/O$distRoot" $installerScript
+    if ($LASTEXITCODE -ne 0) { throw 'Windows installer build failed.' }
+    $artifact = $dist + '-setup.exe'
+} else {
+    $artifact = $dist + '.zip'
+    Compress-Archive -Path (Join-Path $dist '*') -DestinationPath $artifact -Force
+}
+$hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content -LiteralPath ($artifact + '.sha256') -Value ($hash + '  ' + (Split-Path $artifact -Leaf)) -Encoding ascii
+Write-Output $artifact
 Write-Output "SHA256: $hash"

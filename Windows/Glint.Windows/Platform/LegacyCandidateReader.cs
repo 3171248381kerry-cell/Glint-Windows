@@ -67,7 +67,7 @@ internal static class LegacyCandidateReader
             if (text.Length is 0 or > 120 || text.Any(char.IsControl) || !text.Any(c => c is >= '\u3400' and <= '\u9fff')) return null;
             root.accLocation(out int x, out int y, out int width, out int height, 0);
             if (width is <= 0 or > 5000 || height is <= 0 or > 1200 || NativeMethods.GetForegroundWindow() != foreground) return null;
-            return new CandidateSnapshot(text, new Rect(x, y, width, height), foreground, 0, "Windows 原生候选 / MSAA") { FocusIdentity = identity, FocusWindow = focusWindow };
+            return new CandidateSnapshot(text, new Rect(x, y, width, height), foreground, 0, "Windows 原生候选 / MSAA") { FocusIdentity = identity, FocusWindow = focusWindow, CandidateWindow = hwnd };
         }
         catch (Exception error) when (error is COMException or InvalidCastException or ArgumentException) { return null; }
     }

@@ -17,6 +17,8 @@ public sealed record CandidateSnapshot(
     internal string FocusIdentity { get; init; } = "";
     internal nint FocusWindow { get; init; }
     internal Rect? InputLine { get; init; }
+    internal nint CandidateWindow { get; init; }
+    internal ImeAutomationEvents.MenuSession? MenuSession { get; init; }
 }
 
 /// <summary>
@@ -29,7 +31,10 @@ public sealed class CandidateMonitor : IDisposable
     private readonly Func<int> dwellMilliseconds;
     private readonly object gate = new();
     private CancellationTokenSource? cancellation;
+    private CandidateSnapshot? pending;
     private CandidateSnapshot? current;
+    private long pendingSince;
+    private long absentSince;
     private int revision;
     private bool runRequested;
     private bool disposed;
@@ -41,7 +46,14 @@ public sealed class CandidateMonitor : IDisposable
     public event Action<string>? StatusChanged;
     /// <summary>Raised immediately on candidate changes, before the dwell period.</summary>
     public event Action? CandidateInvalidated;
-    public CandidateSnapshot? CurrentSnapshot => Volatile.Read(ref current);
+    public CandidateSnapshot? CurrentSnapshot
+    {
+        get
+        {
+            var snapshot = Volatile.Read(ref current);
+            return snapshot is not null && !CandidateEnded(snapshot) ? snapshot : null;
+        }
+    }
 
     public void Start()
     {
@@ -52,6 +64,7 @@ public sealed class CandidateMonitor : IDisposable
             if (cancellation is not null) return;
             var tokenSource = new CancellationTokenSource();
             cancellation = tokenSource;
+            ImeAutomationEvents.MenuClosed += MenuClosed;
             var thread = new Thread(() => Run(tokenSource.Token))
             {
                 IsBackground = true,
@@ -68,24 +81,43 @@ public sealed class CandidateMonitor : IDisposable
         {
             runRequested = false;
             cancellation?.Cancel();
+            pending = null;
+            absentSince = 0;
+            Volatile.Write(ref current, null);
             // A single worker is retained until it acknowledges cancellation. UIA providers
             // can stall; repeatedly starting threads would otherwise leak stalled workers.
         }
-        Volatile.Write(ref current, null);
     }
+
+    private void MenuClosed(ImeAutomationEvents.MenuSession session)
+    {
+        lock (gate)
+            if (ReferenceEquals(pending?.MenuSession, session)) EndCandidate();
+    }
+
+    private void EndCandidate()
+    {
+        if (pending is null) return;
+        pending = null;
+        absentSince = 0;
+        Volatile.Write(ref current, null);
+        CandidateChanged?.Invoke(null);
+    }
+
+    private static bool CandidateEnded(CandidateSnapshot candidate) =>
+        candidate.MenuSession?.IsClosed == true ||
+        NativeMethods.GetForegroundWindow() != candidate.ForegroundWindow ||
+        (candidate.CandidateWindow != 0 && !NativeMethods.IsWindowVisible(candidate.CandidateWindow));
 
     private void Run(CancellationToken token)
     {
-        CandidateSnapshot? pending = null;
-        var pendingSince = Stopwatch.GetTimestamp();
-        var published = false;
-        var sessionExists = false;
-        var absentSince = 0L;
         string? previousStatus = null;
         try
         {
             while (!token.IsCancellationRequested)
             {
+                lock (gate)
+                    if (pending is { } candidate && CandidateEnded(candidate)) EndCandidate();
                 CandidateSnapshot? observed = null;
                 var status = "等待中文输入法候选";
                 try
@@ -113,54 +145,43 @@ public sealed class CandidateMonitor : IDisposable
                     previousStatus = status;
                     StatusChanged?.Invoke(status);
                 }
-                if (observed is null)
+                lock (gate)
                 {
-                    // 微软拼音第一次打开候选窗时，高亮会先闪一次空读。空读持续一会儿才结束会话。
-                    if (pending is null && !sessionExists) absentSince = 0;
-                    else if (absentSince == 0) absentSince = Stopwatch.GetTimestamp();
-                    else if (Stopwatch.GetElapsedTime(absentSince).TotalMilliseconds >= 80)
+                    if (token.IsCancellationRequested) break;
+                    if (pending is { } candidate && CandidateEnded(candidate)) EndCandidate();
+                    if (observed is not null && CandidateEnded(observed)) observed = null;
+                    if (observed is null)
                     {
-                        pending = null;
-                        published = false;
-                        absentSince = 0;
-                        Volatile.Write(ref current, null);
-                        if (sessionExists)
+                        // Keep the HUD during brief gaps when the menu remains open.
+                        if (pending is not null)
                         {
-                            sessionExists = false;
-                            CandidateChanged?.Invoke(null);
+                            if (absentSince == 0) absentSince = Stopwatch.GetTimestamp();
+                            else if (Stopwatch.GetElapsedTime(absentSince).TotalMilliseconds >= 80) EndCandidate();
                         }
-                    }
-                }
-                else
-                {
-                    absentSince = 0;
-                    sessionExists = true;
-                    if (!CandidateReader.SameCandidate(pending, observed))
-                    {
-                        pending = observed;
-                        pendingSince = Stopwatch.GetTimestamp();
-                        published = false;
-                        Volatile.Write(ref current, null);
-                        CandidateInvalidated?.Invoke();
                     }
                     else
                     {
-                        // Geometry can move without starting a new translation revision.
+                        absentSince = 0;
+                        if (!CandidateReader.SameCandidate(pending, observed))
+                        {
+                            pendingSince = Stopwatch.GetTimestamp();
+                            Volatile.Write(ref current, null);
+                            CandidateInvalidated?.Invoke();
+                        }
                         pending = observed;
-                    }
-                    var dwell = Services.AppSettings.SnapDwell(dwellMilliseconds());
-                    if (!published && Stopwatch.GetElapsedTime(pendingSince).TotalMilliseconds >= dwell)
-                    {
-                        published = true;
-                        var snapshot = pending with { Revision = Interlocked.Increment(ref revision) };
-                        Volatile.Write(ref current, snapshot);
-                        CandidateChanged?.Invoke(snapshot);
-                    }
-                    else if (published && current is { } existing && (existing.Bounds != observed.Bounds || existing.InputLine != observed.InputLine))
-                    {
-                        var snapshot = observed with { Revision = existing.Revision };
-                        Volatile.Write(ref current, snapshot);
-                        CandidateChanged?.Invoke(snapshot);
+                        var dwell = Services.AppSettings.SnapDwell(dwellMilliseconds());
+                        if (current is null && Stopwatch.GetElapsedTime(pendingSince).TotalMilliseconds >= dwell)
+                        {
+                            var snapshot = observed with { Revision = ++revision };
+                            Volatile.Write(ref current, snapshot);
+                            CandidateChanged?.Invoke(snapshot);
+                        }
+                        else if (current is { } existing && (existing.Bounds != observed.Bounds || existing.InputLine != observed.InputLine))
+                        {
+                            var snapshot = observed with { Revision = existing.Revision };
+                            Volatile.Write(ref current, snapshot);
+                            CandidateChanged?.Invoke(snapshot);
+                        }
                     }
                 }
                 if (token.WaitHandle.WaitOne(observed is null ? 30 : 20)) break;
@@ -169,10 +190,10 @@ public sealed class CandidateMonitor : IDisposable
         finally
         {
             WeTypeCandidateBridge.Allow(false);
-            Volatile.Write(ref current, null);
-            CandidateChanged?.Invoke(null);
             lock (gate)
             {
+                ImeAutomationEvents.MenuClosed -= MenuClosed;
+                EndCandidate();
                 cancellation?.Dispose();
                 cancellation = null;
                 if (runRequested && !disposed) Start();
@@ -192,6 +213,8 @@ public sealed class CandidateMonitor : IDisposable
 
 internal static class CandidateReader
 {
+    [ThreadStatic] private static long nextFallbackScan;
+    [ThreadStatic] private static nint fallbackForeground;
     private static readonly HashSet<string> MicrosoftImeProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
         "TextInputHost", "InputApp", "ChsIME", "ChsIMEHost", "ChtIME"
@@ -203,12 +226,18 @@ internal static class CandidateReader
 
     internal static bool SameCandidate(CandidateSnapshot? first, CandidateSnapshot? second) =>
         first is not null && second is not null && first.Text == second.Text &&
-        first.ForegroundWindow == second.ForegroundWindow && first.FocusIdentity == second.FocusIdentity;
+        first.ForegroundWindow == second.ForegroundWindow && first.FocusIdentity == second.FocusIdentity &&
+        first.CandidateWindow == second.CandidateWindow && ReferenceEquals(first.MenuSession, second.MenuSession);
 
     internal static CandidateSnapshot? ReadCurrent()
     {
         var modern = NativeCandidateReader.ReadCurrent();
         if (modern is not null) return modern;
+        var activeWindow = NativeMethods.GetForegroundWindow();
+        if (activeWindow == fallbackForeground && Stopwatch.GetTimestamp() < nextFallbackScan) return null;
+        fallbackForeground = activeWindow;
+        // Keep polling a known candidate normally. Only back off after a failed discovery.
+        nextFallbackScan = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 8;
         var originalStage = NativeCandidateReader.DiagnosticStage;
         if (!TryGetSafeFocus(out var foreground, out var focusIdentity, out var focusWindow)) return null;
         NativeCandidateReader.DiagnosticStage = originalStage;
@@ -255,10 +284,12 @@ internal static class CandidateReader
             }
             catch (ElementNotAvailableException) { }
             if (NativeMethods.GetForegroundWindow() != foreground) return null;
+            nextFallbackScan = 0;
             return new CandidateSnapshot(text!, bounds, foreground, 0, "微软拼音 / 标准候选")
             {
                 FocusIdentity = focusIdentity,
                 FocusWindow = focusWindow,
+                CandidateWindow = hwnd,
                 InputLine = NativeCandidateReader.RecentInputLine
             };
         }

@@ -8,7 +8,7 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <RootNamespace>Glint.Windows</RootNamespace>
     <AssemblyName>Glint</AssemblyName>
-    <Version>0.1.6</Version>
+    <Version>0.1.7</Version>
     <Authors>Glint contributors</Authors>
     <Description>Glint for Windows — 输入中文，查看英语、日语或韩语译文。</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -23,6 +23,21 @@
   </Target>
   <Target Name="PublishHudComposition" AfterTargets="Publish">
     <Copy SourceFiles="$(TargetDir)HudComposition.dll" DestinationFolder="$(PublishDir)" />
+  </Target>
+  <Target Name="PublishWeTypeSink" AfterTargets="Publish">
+    <Copy SourceFiles="$(TargetDir)WeTypeSink.dll" DestinationFolder="$(PublishDir)" />
+  </Target>
+  <Target Name="PublishDotNetLicenses" AfterTargets="Publish"
+          Outputs="%(ResolvedRuntimePack.FrameworkName)"
+          Condition="'$(SelfContained)' == 'true'">
+    <PropertyGroup>
+      <PublishedFramework>@(ResolvedRuntimePack->'%(FrameworkName)')</PublishedFramework>
+      <PublishedRuntimePack>@(ResolvedRuntimePack->'%(PackageDirectory)')</PublishedRuntimePack>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(PublishedFramework)' == 'Microsoft.NETCore.App' Or '$(PublishedFramework)' == 'Microsoft.WindowsDesktop.App'">
+      <DotNetLicense Include="$(PublishedRuntimePack)/LICENSE*;$(PublishedRuntimePack)/THIRD-PARTY*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(DotNetLicense)" DestinationFolder="$(PublishDir)Data/DotNetLicenses/$(PublishedFramework)" />
   </Target>
   <ItemGroup>
     <Reference Include="UIAutomationClient.Interop"><HintPath>Interop/UIAutomationClient.Interop.dll</HintPath><EmbedInteropTypes>true</EmbedInteropTypes></Reference>

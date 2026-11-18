@@ -42,60 +42,64 @@ public sealed class TranslationService : IDisposable
         ct.ThrowIfCancellationRequested();
         text = text.Trim();
         if (disposed || target is not ("en" or "ja" or "ko") || text.Length is 0 or > 200 || text == "你号" || !text.Any(DictionarySurface.IsHan)) return [];
-        var key = $"cedict-2026.10.3:ecdict-2026.10.20.3:{Model.CacheIdentity}:{target}:{mode}:{text}";
-        if (target != "en") return await TranslateModelAsync(text, target, key, ct);
+        var modelReady = Model.IsReady(target);
+        var modelIdentity = modelReady ? LocalModelService.RuntimeId : "none";
+        var key = $"cedict-2026.10.3:ecdict-2026.10.20.3:{modelIdentity}:{target}:{mode}:{text}";
         lock (sync)
         {
             if (cache.TryGetValue(key, out var node)) { lru.Remove(node); lru.AddFirst(node); return node.Value.Value; }
         }
+        if (target != "en")
+            return modelReady ? await TranslateModelAsync(text, target, key, ct).ConfigureAwait(false) : [];
+
         var sentence = text.Length >= 9 || text.Any(c => "，。！？；：,.!?;:".Contains(c));
-        // 单词的词典结果应马上显示。智能融合若先等本地模型，候选栏会空转一两秒。
-        if (!sentence && mode != TranslationMode.ModelFirst)
-        {
-            var immediate = await Task.Run(() => LookupDictionary(text, ct), ct);
-            if (immediate.Count > 0) return Remember(key, immediate, null);
-        }
-        var dictionaryTask = Task.Run(() => LookupDictionary(text, ct), ct);
-        var modelTask = mode is TranslationMode.ModelFirst or TranslationMode.Smart || sentence ? ModelTextAsync(text, ct) : null;
-        var dictionary = await dictionaryTask;
-        string? modelText = modelTask is not null ? await modelTask : dictionary.Count == 0 ? await ModelTextAsync(text, ct) : null;
-        ct.ThrowIfCancellationRequested();
         List<Option> options;
-        if (string.IsNullOrWhiteSpace(modelText)) options = dictionary;
-        else if (sentence) options = [new Option(modelText, 1, "OPUS-MT")];
-        else if (mode == TranslationMode.ModelFirst)
-            options = [new Option(modelText, 2, "OPUS-MT"), .. dictionary.Select((o, i) => o with { Score = 1 - i * .001 })];
-        else if (mode == TranslationMode.Smart)
+        if (sentence && modelReady)
         {
-            var modelKey = DictionarySurface.DedupeKey(modelText);
-            var rank = dictionary.FindIndex(o => DictionarySurface.DedupeKey(o.Text) == modelKey);
-            options = [new Option(modelText, .55 + (rank >= 0 ? .60 / (rank + 1) + .35 : 0), "OPUS-MT")];
-            options.AddRange(dictionary.Select((o, i) => (Option: o, Index: i)).Where(x => DictionarySurface.DedupeKey(x.Option.Text) != modelKey).Select(x => x.Option with { Score = .60 / (x.Index + 1) }));
+            var modelText = await ModelTextAsync(text, ct).ConfigureAwait(false);
+            options = modelText is null
+                ? await Task.Run(() => LookupDictionary(text, ct), ct).ConfigureAwait(false)
+                : [new Option(modelText, 1, "OPUS-MT")];
         }
-        else options = dictionary.Count > 0 ? dictionary : [new Option(modelText, 1, "OPUS-MT")];
+        else
+        {
+            var dictionaryTask = Task.Run(() => LookupDictionary(text, ct), ct);
+            if (mode == TranslationMode.ModelFirst && modelReady)
+            {
+                var modelTask = ModelTextAsync(text, ct);
+                await Task.WhenAll(dictionaryTask, modelTask).ConfigureAwait(false);
+                var dictionary = await dictionaryTask.ConfigureAwait(false);
+                var modelText = await modelTask.ConfigureAwait(false);
+                options = modelText is null ? dictionary
+                    : [new Option(modelText, 2, "OPUS-MT"), .. dictionary.Select((o, i) => o with { Score = 1 - i * .001 })];
+            }
+            else
+            {
+                // For words and phrases a dictionary hit can go straight to the HUD.
+                options = await dictionaryTask.ConfigureAwait(false);
+                if (options.Count == 0 && modelReady && await ModelTextAsync(text, ct).ConfigureAwait(false) is { } modelText)
+                    options.Add(new Option(modelText, 1, "OPUS-MT"));
+            }
+        }
+        ct.ThrowIfCancellationRequested();
         return Remember(key, options, null);
     }
 
     private async Task<IReadOnlyList<TranslationResult>> TranslateModelAsync(string text, string target, string key, CancellationToken ct)
     {
-        lock (sync)
-        {
-            if (cache.TryGetValue(key, out var node)) { lru.Remove(node); lru.AddFirst(node); return node.Value.Value; }
-        }
-        if (!Model.IsReady(target)) return [];
-        var output = await Model.TranslateAsync(text, target, ct);
+        var output = await Model.TranslateAsync(text, target, ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
-        if (output is not { } translated) return Remember(key, [], null);
+        if (output is not { } translated) return [];
         var shown = target == "ja" ? JapaneseDisplay.Format(translated.Text, translated.Reading) : translated.Text;
         var speak = target == "ja" ? JapaneseDisplay.Pronunciation(translated.Text, translated.Reading) : translated.Text;
-        if (target == "ja" && !JapaneseDisplay.IsUsable(shown)) return Remember(key, [], null);
-        if (target == "ko" && !shown.Any(c => c is >= '\uAC00' and <= '\uD7A3')) return Remember(key, [], null);
+        if (target == "ja" && !JapaneseDisplay.IsUsable(shown)) return [];
+        if (target == "ko" && !shown.Any(c => c is >= '\uAC00' and <= '\uD7A3')) return [];
         return Remember(key, [new Option(shown, 1, "OPUS-MT")], speak);
     }
 
     private async Task<string?> ModelTextAsync(string text, CancellationToken ct)
     {
-        var output = await Model.TranslateAsync(text, "en", ct);
+        var output = await Model.TranslateAsync(text, "en", ct).ConfigureAwait(false);
         return output is { } translated ? translated.Text : null;
     }
 
@@ -106,6 +110,7 @@ public sealed class TranslationService : IDisposable
 
     private IReadOnlyList<TranslationResult> Remember(string key, List<Option> options, string? speak)
     {
+        if (options.Count == 0) return [];
         lock (sync)
         {
             if (disposed) return [];

@@ -104,6 +104,8 @@ internal static class SelfCheck
                     hud.Present([new TranslationResult("hello"), new TranslationResult("world")], new Rect(200, 200, 100, 30), allowSelection: true);
                     var selectionRow = (StackPanel)((Border)hud.Content).Child;
                     var selectionItem = (StackPanel)selectionRow.Children[1];
+                    hud.Reposition(new Rect(210, 200, 100, 30), null, "");
+                    Require(ReferenceEquals(selectionRow.Children[1], selectionItem), "geometry update keeps the existing translation controls");
                     selectionItem.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
                     Require(selectedIndex == 1 && hud.IsHitTestVisible, "mouse selects the intended translation");
                     hud.MarkStale();
@@ -111,6 +113,8 @@ internal static class SelfCheck
                     restored.MouseInsert = false;
                     hud.Present([new TranslationResult("hello")], new Rect(200, 200, 100, 30), allowSelection: true);
                     Require(!hud.IsHitTestVisible, "disabled mouse insertion passes through");
+                    Require(selectionItem.Visibility == Visibility.Collapsed && ((TextBlock)selectionItem.Children[1]).Text.Length == 0,
+                        "unused translation controls are hidden and cleared");
                     restored.MouseInsert = true;
                     var acceptedThemes = new List<string>();
                     foreach (string theme in new[] { "Light", "Dark" })
@@ -132,6 +136,9 @@ internal static class SelfCheck
                     Require(hud.IsVisible && hud.Opacity == 1, "new translation replaces the previous one without dimming");
                     Require(!hud.HasCompositionBackdrop, "solid HUD does not use composition backdrop");
                     Require(((SolidColorBrush)((System.Windows.Controls.Border)hud.Content).Background).Color == ((SolidColorBrush)Application.Current.FindResource("HudGlassBrush")).Color, "solid HUD uses fixed themed surface");
+                    hud.Dismiss(immediate: true);
+                    Require(!hud.IsVisible && !hud.IsHitTestVisible, "confirmed candidate closure hides and disables the HUD immediately");
+                    Require(((TextBlock)((StackPanel)selectionRow.Children[0]).Children[1]).Text.Length == 0, "hidden HUD releases its translation text");
                     hud.Close();
                     checks.Add(new { check = "light/dark HUD rendering and text colors", passed = true, acceptedThemes, compositionError = hud.CompositionError });
                 }

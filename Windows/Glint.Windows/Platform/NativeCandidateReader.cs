@@ -105,7 +105,7 @@ internal static class NativeCandidateReader
                 elapsed = (int)timer.ElapsedMilliseconds,
                 stage,
                 weTypeEvents = new { status = weTypeEvents.Status, recent = weTypeEvents.Snapshot() },
-                events = new { received = ImeAutomationEvents.Received, kept = ImeAutomationEvents.Count, status = ImeAutomationEvents.Status, open = ImeAutomationEvents.OpenDiagnostic, live = ImeAutomationEvents.Live is not null, lastDrop = ImeAutomationEvents.LastDrop, recent = ImeAutomationEvents.RecentMetadata() },
+                events = new { received = ImeAutomationEvents.Received, kept = ImeAutomationEvents.Count, status = ImeAutomationEvents.Status, open = ImeAutomationEvents.OpenDiagnostic, live = ImeAutomationEvents.Live is not null, lastDrop = ImeAutomationEvents.LastDrop, recent = ImeAutomationEvents.RecentMetadata(), focusEvents = ImeAutomationEvents.MicrosoftCandidateFocusEvents },
                 visibleWindows,
                 windows
             });
@@ -318,30 +318,30 @@ internal static class NativeCandidateReader
     internal static CandidateSnapshot? ReadCurrent()
     {
         ImeAutomationEvents.Start();
-        if (DoubaoCandidateBridge.FindWindow() is { } doubaoBounds)
+        if (DoubaoCandidateBridge.FindWindow() is { } doubaoWindow)
         {
             if (WeTypeCandidateBridge.TryGetFocus(out nint doubaoForeground, out string doubaoIdentity, out nint doubaoFocus))
             {
-                var doubao = DoubaoCandidateBridge.TryRead(doubaoBounds, doubaoForeground, doubaoIdentity, doubaoFocus);
+                var doubao = DoubaoCandidateBridge.TryRead(doubaoWindow.Bounds, doubaoForeground, doubaoIdentity, doubaoFocus);
                 if (doubao is not null)
                 {
                     DiagnosticStage = "candidate read";
-                    return doubao;
+                    return doubao with { CandidateWindow = doubaoWindow.Handle };
                 }
             }
             DiagnosticStage = "doubao candidate";
             return null;
         }
-        if (WeTypeCandidateBridge.FindWindow() is { } weTypeBounds)
+        if (WeTypeCandidateBridge.FindWindow() is { } weTypeWindow)
         {
             if (WeTypeCandidateBridge.TryGetFocus(out nint weTypeForeground, out string weTypeIdentity, out nint weTypeFocus))
             {
                 WeTypeCandidateBridge.Allow(true);
-                var weType = WeTypeCandidateBridge.TryRead(weTypeBounds, weTypeForeground, weTypeIdentity, weTypeFocus);
+                var weType = WeTypeCandidateBridge.TryRead(weTypeWindow.Bounds, weTypeForeground, weTypeIdentity, weTypeFocus);
                 if (weType is not null)
                 {
                     DiagnosticStage = "candidate read";
-                    return weType;
+                    return weType with { CandidateWindow = weTypeWindow.Handle };
                 }
             }
             else WeTypeCandidateBridge.Allow(false);
@@ -349,25 +349,25 @@ internal static class NativeCandidateReader
             return null;
         }
         WeTypeCandidateBridge.Allow(false);
-        if (ImeAutomationEvents.Live is { } ready)
+        if (ImeAutomationEvents.Live is { } ready && ready.Foreground == NativeMethods.GetForegroundWindow())
         {
             bool accepted = TryAcceptLiveFocus(out nint liveForeground, out string liveIdentity, out nint liveFocus);
             // 第一次弹出时，UIA 焦点经常停在仍被标成离屏的输入法候选项上，正文焦点检查会把这次候选丢掉。
             if (!accepted && AcceptsImeHostFocus(ready.FromImeHost, FocusedElementIsImeHost()))
                 accepted = TryAcceptImeForeground(out liveForeground, out liveIdentity, out liveFocus);
-            if (accepted)
+            if (accepted && ready.Foreground == liveForeground)
             {
                 DiagnosticStage = "candidate read";
-                return new CandidateSnapshot(ready.Text, ready.Bounds, liveForeground, 0, "Windows 候选 / UIA 事件") { FocusIdentity = liveIdentity, FocusWindow = liveFocus, InputLine = RecentInputLine };
+                return new CandidateSnapshot(ready.Text, ready.Bounds, liveForeground, 0, "Windows 候选 / UIA 事件") { FocusIdentity = liveIdentity, FocusWindow = liveFocus, InputLine = RecentInputLine, MenuSession = ready.Session };
             }
         }
         if (Stopwatch.GetTimestamp() < nextSlowScanTicks) return null;
         nextSlowScanTicks = Stopwatch.GetTimestamp() + Stopwatch.Frequency / 5;
         if (!TryGetSafeFocus(out nint foreground, out string identity, out nint focusWindow)) return null;
-        if (ImeAutomationEvents.Live is { } live && (live.FromImeHost || live.Foreground == foreground))
+        if (ImeAutomationEvents.Live is { } live && live.Foreground == foreground)
         {
             DiagnosticStage = "candidate read";
-            return new CandidateSnapshot(live.Text, live.Bounds, foreground, 0, "Windows 候选 / UIA 事件") { FocusIdentity = identity, FocusWindow = focusWindow, InputLine = RecentInputLine };
+            return new CandidateSnapshot(live.Text, live.Bounds, foreground, 0, "Windows 候选 / UIA 事件") { FocusIdentity = identity, FocusWindow = focusWindow, InputLine = RecentInputLine, MenuSession = live.Session };
         }
         eventContainers ??= new();
         eventContainers.RemoveAll(x => x.Foreground != foreground);

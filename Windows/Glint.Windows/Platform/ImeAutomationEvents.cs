@@ -28,6 +28,8 @@ internal static class ImeAutomationEvents
     private static U.IUIAutomationElement? highlightedItem;
     private static U.IUIAutomationElement? watchedItem;
     private static U.IUIAutomationElement? openWindow;
+    private static nint openForeground;
+    private static bool menuWasVisible;
     private static U.IUIAutomationElement? watchedWindow;
     private static NameSink? nameSink;
     private static DispatcherTimer? retryTimer;
@@ -36,13 +38,23 @@ internal static class ImeAutomationEvents
     private static int retriesLeft;
     private static string openDiagnostic = "idle";
     internal static string OpenDiagnostic => Volatile.Read(ref openDiagnostic);
+    private static long microsoftCandidateFocusEvents;
+    internal static long MicrosoftCandidateFocusEvents => Interlocked.Read(ref microsoftCandidateFocusEvents);
 
     /// <summary>候选窗第一次出现时，高亮项通常是创建出来就已经选中的，不会再发选中事件。</summary>
     internal static bool ShouldReadOpenMenu(int eventId, bool candidateWindow) =>
         eventId == 20003 && candidateWindow;
 
-    internal sealed record LiveCandidate(string Text, Rect Bounds, nint Foreground, bool FromImeHost);
+    internal sealed class MenuSession
+    {
+        private int closed;
+        internal bool IsClosed => Volatile.Read(ref closed) != 0;
+        internal void Close() => Volatile.Write(ref closed, 1);
+    }
+
+    internal sealed record LiveCandidate(string Text, Rect Bounds, nint Foreground, bool FromImeHost, MenuSession Session);
     internal static LiveCandidate? Live => Volatile.Read(ref live);
+    internal static event Action<MenuSession>? MenuClosed;
 
     internal static string Status { get; private set; } = "not started";
     internal static string LastDrop { get; private set; } = "";
@@ -71,8 +83,10 @@ internal static class ImeAutomationEvents
         U.IUIAutomation? client = null;
         U.IUIAutomationElement? root = null;
         var sink = new Sink();
+        var focusSink = new FocusSink();
         activeSink = sink;
         var registered = new List<int>();
+        bool registeredFocus = false;
         try
         {
             client = CreateClient();
@@ -84,6 +98,16 @@ internal static class ImeAutomationEvents
                 client.AddAutomationEventHandler(id, root, U.TreeScope.TreeScope_Subtree, cache, sink);
                 registered.Add(id);
             }
+            try
+            {
+                var focusCache = client.CreateCacheRequest();
+                focusCache.AutomationElementMode = U.AutomationElementMode.AutomationElementMode_Full;
+                focusCache.AddProperty(30002); // ProcessId
+                focusCache.AddProperty(30003); // ControlType
+                client.AddFocusChangedEventHandler(focusCache, focusSink);
+                registeredFocus = true;
+            }
+            catch (COMException) { } // Menu and selection notifications remain available.
             eventClient = client;
             Status = "listening";
             var dispatcher = Dispatcher.CurrentDispatcher;
@@ -100,13 +124,18 @@ internal static class ImeAutomationEvents
         finally
         {
             if (client is not null && root is not null)
+            {
                 foreach (int id in registered)
                     try { client.RemoveAutomationEventHandler(id, root, sink); } catch (COMException) { }
+                if (registeredFocus)
+                    try { client.RemoveFocusChangedEventHandler(focusSink); } catch (COMException) { }
+            }
             EndCandidate();
             eventClient = null;
             while (Sources.TryDequeue(out var source)) source.ReleaseStream();
             if (ReferenceEquals(activeSink, sink)) activeSink = null;
             GC.KeepAlive(sink);
+            GC.KeepAlive(focusSink);
             GC.KeepAlive(nameSink);
         }
     }
@@ -162,6 +191,8 @@ internal static class ImeAutomationEvents
             lock (gate)
             {
                 if (stream == 0) return;
+                // Eviction and shutdown run on the STA that marshaled the element.
+                CoReleaseMarshalData(stream);
                 Marshal.Release(stream);
                 stream = 0;
             }
@@ -177,14 +208,22 @@ internal static class ImeAutomationEvents
             Interlocked.Increment(ref received);
             try
             {
+                if (eventId == 20007 && Value(sender, 30011) as string == "IME_Candidate_Window" &&
+                    (openWindow is null || IsSameElement(sender, openWindow)))
+                    EndCandidate();
                 if (Describe(sender, eventId) is not { } described) return;
                 if (described.Close)
-                    EndCandidate();
+                {
+                    if (openWindow is { } tracked && CandidateWindowOf(sender) is { } closed && IsSameElement(closed, tracked))
+                        EndCandidate();
+                }
                 else if (described.Text is not null && described.HasBounds)
                 {
                     var item = HighlightItem(sender);
                     highlightedItem = item;
-                    Volatile.Write(ref live, new LiveCandidate(described.Text, described.Bounds, described.Foreground, described.FromImeHost));
+                    PublishCandidate(described.Text, described.Bounds, described.Foreground, described.FromImeHost);
+                    if (openWindow is null && CandidateWindowOf(item) is { } window)
+                        TrackOpenWindow(window);
                     Watch(item);
                 }
                 else if (ShouldReadOpenMenu(eventId, described.CandidateWindow))
@@ -289,23 +328,38 @@ internal static class ImeAutomationEvents
     {
         var window = CandidateWindowOf(sender);
         if (window is null) { Volatile.Write(ref openDiagnostic, "open: no candidate window"); return; }
+        TrackOpenWindow(window);
+    }
+
+    private static void TrackOpenWindow(U.IUIAutomationElement window)
+    {
         Volatile.Write(ref openDiagnostic, "open: searching");
         openWindow = window;
+        openForeground = NativeMethods.GetForegroundWindow();
+        menuWasVisible = false;
         int generation = ++openGeneration;
         WatchWindow(window);
-        if (TryPublishOpenWindow(window)) { retryTimer?.Stop(); return; }
+        TryPublishOpenWindow(window);
         ArmRetry(generation);
     }
 
     private static void EndCandidate()
     {
+        var previous = Interlocked.Exchange(ref live, null);
+        if (previous is not null)
+        {
+            previous.Session.Close();
+            MenuClosed?.Invoke(previous.Session);
+        }
         openGeneration++;
         openWindow = null;
+        openForeground = 0;
+        menuWasVisible = false;
         retryTimer?.Stop();
         Unwatch();
         UnwatchWindow();
         highlightedItem = null;
-        Volatile.Write(ref live, null);
+        Volatile.Write(ref openDiagnostic, "closed");
     }
 
     private static void ArmRetry(int generation)
@@ -320,8 +374,15 @@ internal static class ImeAutomationEvents
             retryTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher.CurrentDispatcher) { Interval = TimeSpan.FromMilliseconds(80) };
             retryTimer.Tick += (_, _) =>
             {
-                if (retryGeneration != openGeneration || openWindow is null || retriesLeft-- <= 0) { retryTimer.Stop(); return; }
-                if (TryPublishOpenWindow(openWindow)) retryTimer.Stop();
+                if (retryGeneration != openGeneration || openWindow is not { } window) { retryTimer.Stop(); return; }
+                if (openForeground != NativeMethods.GetForegroundWindow()) { EndCandidate(); return; }
+                if (menuWasVisible && Live is { } current && current.Foreground == openForeground)
+                {
+                    if (IsMenuOffscreen(window)) EndCandidate();
+                    return;
+                }
+                if (retriesLeft-- <= 0) { EndCandidate(); return; }
+                TryPublishOpenWindow(window);
             };
         }
         retryTimer.Stop();
@@ -332,7 +393,10 @@ internal static class ImeAutomationEvents
     {
         try
         {
-            if (Value(window, 30022) is true) { Volatile.Write(ref openDiagnostic, "window offscreen"); return false; }
+            var foreground = openForeground;
+            if (foreground == 0 || NativeMethods.GetForegroundWindow() != foreground || Value(window, 30022) is not false)
+            { Volatile.Write(ref openDiagnostic, "window offscreen or foreground changed"); return false; }
+            menuWasVisible = true;
             var item = FindSelectedItem(window);
             if (item is null) { Volatile.Write(ref openDiagnostic, "no selected item"); return false; }
             var text = ReadCandidateText(item);
@@ -343,11 +407,31 @@ internal static class ImeAutomationEvents
                 bounds = HudPlacement.AlignToList(bounds, listBounds);
             highlightedItem = item;
             Watch(item);
-            Volatile.Write(ref live, new LiveCandidate(text, bounds, NativeMethods.GetForegroundWindow(), true));
+            if (NativeMethods.GetForegroundWindow() != foreground) return false;
+            PublishCandidate(text, bounds, foreground, IsKnownImeProcess(Convert.ToInt32(Value(window, 30002) ?? 0)));
             Volatile.Write(ref openDiagnostic, "published");
             return true;
         }
         catch (Exception error) when (error is COMException or InvalidCastException) { Volatile.Write(ref openDiagnostic, "open error: " + error.GetType().Name); return false; }
+    }
+
+    private static void PublishCandidate(string text, Rect bounds, nint foreground, bool fromImeHost)
+    {
+        var session = Live is { } current && current.Foreground == foreground ? current.Session : new MenuSession();
+        Volatile.Write(ref live, new LiveCandidate(text, bounds, foreground, fromImeHost, session));
+    }
+
+    private static bool IsMenuOffscreen(U.IUIAutomationElement window)
+    {
+        try { return window.GetCurrentPropertyValue(30022) is true; }
+        catch (COMException error) { return error.HResult == unchecked((int)0x80040201); } // UIA_E_ELEMENTNOTAVAILABLE
+    }
+
+    private static bool IsSameElement(U.IUIAutomationElement first, U.IUIAutomationElement second)
+    {
+        if (ReferenceEquals(first, second)) return true;
+        try { return CallbackClients.Value!.CompareElements(first, second) != 0; }
+        catch (COMException) { return false; }
     }
 
     private static U.IUIAutomationElement? CandidateWindowOf(U.IUIAutomationElement node)
@@ -364,7 +448,9 @@ internal static class ImeAutomationEvents
 
     private static U.IUIAutomationElement? FindSelectedItem(U.IUIAutomationElement root)
     {
-        U.IUIAutomationElement? hidden = null;
+        // The XAML Pinyin panel exposes its highlighted item as keyboard-focused
+        // even when it does not implement either of the UIA selection patterns.
+        if (FindFocusedMicrosoftItem(root) is { } focused) return focused;
         foreach (var walker in new[] { CallbackClients.Value!.ControlViewWalker, CallbackClients.Value.RawViewWalker })
         {
             var pending = new Queue<(U.IUIAutomationElement Node, int Depth)>();
@@ -372,11 +458,7 @@ internal static class ImeAutomationEvents
             for (int seen = 0; pending.Count > 0 && seen++ < 48;)
             {
                 var (node, depth) = pending.Dequeue();
-                if (!ReferenceEquals(node, root) && Value(node, 30079) is true)
-                {
-                    if (Value(node, 30022) is true) hidden ??= node;
-                    else return node;
-                }
+                if (depth > 0 && Value(node, 30079) is true && Value(node, 30022) is false) return node;
                 if (depth >= 6) continue;
                 U.IUIAutomationElement? child;
                 try { child = walker.GetFirstChildElement(node); }
@@ -388,9 +470,50 @@ internal static class ImeAutomationEvents
                     catch (COMException) { break; }
                 }
             }
-            if (hidden is not null) return hidden;
         }
-        return hidden;
+        return null;
+    }
+
+    private static U.IUIAutomationElement? FindFocusedMicrosoftItem(U.IUIAutomationElement window)
+    {
+        if (!IsMicrosoftImeProcess(Convert.ToInt32(Value(window, 30002) ?? 0))) return null;
+        var walker = CallbackClients.Value!.ControlViewWalker;
+        var panel = walker.GetFirstChildElement(window);
+        for (int i = 0; panel is not null && i < 12; i++, panel = walker.GetNextSiblingElement(panel))
+        {
+            if (!IsMicrosoftCandidatePanel(panel)) continue;
+            var item = walker.GetFirstChildElement(panel);
+            for (int j = 0; item is not null && j < 16; j++, item = walker.GetNextSiblingElement(item))
+                if (IsFocusedCandidateItem(item)) return item;
+            break;
+        }
+        return null;
+    }
+
+    private static bool IsMicrosoftCandidatePanel(U.IUIAutomationElement panel) =>
+        Value(panel, 30011) as string == "TEMPLATE_PART_CandidatePanel" && Value(panel, 30003) is 50008;
+
+    private static bool IsFocusedCandidateItem(U.IUIAutomationElement item) =>
+        Value(item, 30003) is 50007 && Value(item, 30022) is false && Value(item, 30008) is true;
+
+    [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+    public sealed class FocusSink : U.IUIAutomationFocusChangedEventHandler
+    {
+        public void HandleFocusChangedEvent(U.IUIAutomationElement sender)
+        {
+            if (Stop.IsSet || sender is null) return;
+            try
+            {
+                if (sender.GetCachedPropertyValue(30003) is not 50007 ||
+                    !IsMicrosoftImeProcess(Convert.ToInt32(sender.GetCachedPropertyValue(30002))) ||
+                    !IsFocusedCandidateItem(sender)) return;
+                var panel = CallbackClients.Value!.ControlViewWalker.GetParentElement(sender);
+                if (panel is null || !IsMicrosoftCandidatePanel(panel) || CandidateWindowOf(panel) is not { } window) return;
+                Interlocked.Increment(ref microsoftCandidateFocusEvents);
+                TrackOpenWindow(window);
+            }
+            catch (Exception error) when (error is COMException or InvalidCastException) { }
+        }
     }
 
     private static U.IUIAutomationElement? ListAncestor(U.IUIAutomationElement item)
@@ -407,15 +530,16 @@ internal static class ImeAutomationEvents
 
     private static void WatchWindow(U.IUIAutomationElement window)
     {
-        if (eventClient is null || ReferenceEquals(watchedWindow, window)) return;
+        if (eventClient is null || (watchedWindow is { } current && IsSameElement(current, window))) return;
         UnwatchWindow();
         try
         {
             nameSink ??= new NameSink();
             var cache = eventClient.CreateCacheRequest();
             cache.AutomationElementMode = U.AutomationElementMode.AutomationElementMode_Full;
-            eventClient.AddPropertyChangedEventHandler(window, U.TreeScope.TreeScope_Subtree, cache, nameSink, new[] { 30005 });
+            eventClient.AddPropertyChangedEventHandler(window, U.TreeScope.TreeScope_Subtree, cache, nameSink, new[] { 30005, 30022 });
             watchedWindow = window;
+            Unwatch();
         }
         catch (Exception error) when (error is COMException or ArgumentException) { }
     }
@@ -429,7 +553,8 @@ internal static class ImeAutomationEvents
 
     private static void Watch(U.IUIAutomationElement item)
     {
-        if (eventClient is null || ReferenceEquals(watchedItem, item)) return;
+        if (eventClient is null || watchedWindow is not null ||
+            (watchedItem is { } current && IsSameElement(current, item))) return;
         Unwatch();
         try
         {
@@ -472,9 +597,17 @@ internal static class ImeAutomationEvents
     {
         public void HandlePropertyChangedEvent(U.IUIAutomationElement sender, int propertyId, object newValue)
         {
-            if (Stop.IsSet || sender is null || propertyId != 30005) return;
+            if (Stop.IsSet || sender is null) return;
             try
             {
+                if (propertyId == 30022)
+                {
+                    if (newValue is true && menuWasVisible && Live is { } current && current.Foreground == openForeground &&
+                        openWindow is { } window && IsSameElement(sender, window) && IsMenuOffscreen(window))
+                        EndCandidate();
+                    return;
+                }
+                if (propertyId != 30005) return;
                 if (openWindow is not null && TryPublishOpenWindow(openWindow)) return;
                 RefreshHighlightedItem();
             }
@@ -642,13 +775,17 @@ internal static class ImeAutomationEvents
         className.Contains("Candidate", StringComparison.OrdinalIgnoreCase) ||
         className.Contains("WeType", StringComparison.Ordinal);
 
-    private static bool IsKnownImeProcess(int processId)
+    private static bool IsKnownImeProcess(int processId) => IsImeProcess(processId, includeWeType: true);
+    private static bool IsMicrosoftImeProcess(int processId) => IsImeProcess(processId, includeWeType: false);
+
+    private static bool IsImeProcess(int processId, bool includeWeType)
     {
         if (processId <= 0) return false;
         try
         {
             using var process = Process.GetProcessById(processId);
-            return process.ProcessName is "TextInputHost" or "InputApp" or "ChsIME" or "ChsIMEHost" or "ChtIME" or "wetype_renderer";
+            string name = process.ProcessName;
+            return name is "TextInputHost" or "InputApp" or "ChsIME" or "ChsIMEHost" or "ChtIME" || includeWeType && name == "wetype_renderer";
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { return false; }
     }
@@ -669,4 +806,7 @@ internal static class ImeAutomationEvents
 
     [DllImport("ole32.dll")]
     private static extern int CoGetInterfaceAndReleaseStream(nint stream, ref Guid riid, [MarshalAs(UnmanagedType.IUnknown)] out object? instance);
+
+    [DllImport("ole32.dll")]
+    private static extern int CoReleaseMarshalData(nint stream);
 }

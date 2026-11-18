@@ -15,15 +15,15 @@ internal static class DoubaoCandidateBridge
     private const string PipeName = @"\\.\pipe\ObricIme\oime-server";
     private const int Capacity = 0x4000;
     private static readonly nint PipeNamePointer = Marshal.StringToHGlobalAnsi(PipeName);
-    private static readonly BlockingCollection<ReadRequest> Requests = new();
+    private static readonly BlockingCollection<ReadRequest> Requests = new(1);
     private static int workerStarted;
     private static nint module;
     private static nint buffer;
     private static GetCandidateList? read;
 
-    internal static Rect? FindWindow()
+    internal static (nint Handle, Rect Bounds)? FindWindow()
     {
-        Rect? found = null;
+        (nint Handle, Rect Bounds)? found = null;
         NativeMethods.EnumWindows((hwnd, _) =>
         {
             if (!NativeMethods.IsWindowVisible(hwnd) || NativeMethods.WindowClass(hwnd) != "OimeDirectUIWindow") return true;
@@ -40,7 +40,7 @@ internal static class DoubaoCandidateBridge
             if (width is >= 300 and < 2400 && height is >= 36 and < 800)
             {
                 rect = NativeMethods.VisibleWindowRect(hwnd, rect);
-                found = CandidateRowBounds(new Rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top), NativeMethods.GetDpiForWindow(hwnd));
+                found = (hwnd, CandidateRowBounds(new Rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top), NativeMethods.GetDpiForWindow(hwnd)));
             }
             return found is null;
         }, 0);
@@ -60,8 +60,8 @@ internal static class DoubaoCandidateBridge
     {
         EnsureWorker();
         var request = new ReadRequest();
-        Requests.Add(request);
-        if (!request.Done.Wait(120) || request.Payload is null || !TrySelect(request.Payload, request.Selection, out string text)) return null;
+        if (!Requests.TryAdd(request) || !request.Done.Wait(120) ||
+            request.Payload is null || !TrySelect(request.Payload, request.Selection, out string text)) return null;
         if (NativeMethods.GetForegroundWindow() != foreground) return null;
         return new CandidateSnapshot(text, bounds, foreground, 0, "豆包输入法")
         {

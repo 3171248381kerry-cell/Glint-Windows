@@ -16,6 +16,9 @@ public sealed class HudWindow : Window
 {
     private readonly Border _surface;
     private readonly StackPanel _row;
+    private readonly List<TranslationEntry> _entries = [];
+    private readonly RectangleGeometry _clip = new() { RadiusX = 9, RadiusY = 9 };
+    private readonly SolidColorBrush _backdropTint = new();
     private readonly AppSettings _settings;
     private readonly CompositionBackdrop _backdrop = new();
     private readonly DependencyPropertyDescriptor _opacityDescriptor;
@@ -42,6 +45,7 @@ public sealed class HudWindow : Window
         _row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         _surface = new Border { CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1), Padding = new Thickness(12, 0, 12, 0), Child = _row };
         Content = _surface;
+        Clip = _clip;
         SourceInitialized += (_, _) =>
         {
             _handle = new WindowInteropHelper(this).Handle;
@@ -56,30 +60,30 @@ public sealed class HudWindow : Window
         if (translations.Count == 0) { Dismiss(); return; }
         ++_generation;
         BeginAnimation(OpacityProperty, null);
-        _row.Children.Clear();
         Brush text = _settings.TextColor == "Auto"
             ? (Brush)Application.Current.FindResource("TextBrush")
             : new SolidColorBrush((Color)ColorConverter.ConvertFromString(_settings.TextColor));
-        var visible = translations.Take(_settings.MaxTranslations).ToArray();
+        int count = Math.Min(translations.Count, _settings.MaxTranslations);
         bool selectable = allowSelection && _settings.MouseInsert;
-        for (int i = 0; i < visible.Length; ++i)
+        for (int i = 0; i < count; ++i)
         {
-            var entry = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(i == 0 ? 0 : 16, 0, 0, 0) };
-            int index = i;
-            entry.Background = Brushes.Transparent;
-            if (selectable)
+            if (i == _entries.Count)
             {
-                entry.Cursor = Cursors.Hand;
-                entry.MouseLeftButtonUp += (_, e) => { e.Handled = true; TranslationSelected?.Invoke(index); };
+                int index = i;
+                var entry = new TranslationEntry(index);
+                entry.Row.MouseLeftButtonUp += (_, e) =>
+                {
+                    if (!IsHitTestVisible || !entry.Row.IsVisible) return;
+                    e.Handled = true;
+                    TranslationSelected?.Invoke(index);
+                };
+                _entries.Add(entry);
+                _row.Children.Add(entry.Row);
             }
-            entry.Children.Add(new TextBlock { Text = (i + 1).ToString(), FontSize = 11, Foreground = text, Opacity = .5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) });
-            entry.Children.Add(new TextBlock { Text = visible[i].Text, FontSize = _settings.HudFontSize, Foreground = text, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = Math.Max(80, 650.0 / visible.Length), VerticalAlignment = VerticalAlignment.Center });
-            if (_settings.ShowPartsOfSpeech && !string.IsNullOrWhiteSpace(visible[i].PartOfSpeech))
-                entry.Children.Add(new TextBlock { Text = visible[i].PartOfSpeech, FontSize = 11, Foreground = text, Opacity = .65, Margin = new Thickness(5, 1, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            _row.Children.Add(entry);
+            _entries[i].Update(translations[i], text, _settings.HudFontSize, Math.Max(80, 650.0 / count), _settings.ShowPartsOfSpeech);
+            _entries[i].Row.Cursor = selectable ? Cursors.Hand : null;
         }
-        // Keep a readable surface if the system declines the material request.
-        _surface.Background = (Brush)Application.Current.FindResource("HudGlassBrush");
+        for (int i = count; i < _entries.Count; ++i) _entries[i].Clear();
         _surface.BorderBrush = (Brush)Application.Current.FindResource("HudGlassBorderBrush");
         bool wasVisible = IsVisible;
         if (!wasVisible) { Opacity = 0; Show(); }
@@ -88,6 +92,11 @@ public sealed class HudWindow : Window
         Position(candidateBounds, inputLine, source);
         if (Animate && !wasVisible) BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(80)));
         else Opacity = 1;
+    }
+
+    internal void Reposition(Rect candidateBounds, Rect? inputLine, string source)
+    {
+        if (IsVisible) Position(candidateBounds, inputLine, source);
     }
 
     protected override void OnClosed(EventArgs e)
@@ -107,16 +116,23 @@ public sealed class HudWindow : Window
         BeginAnimation(OpacityProperty, null);
         if (IsVisible) Opacity = 1;
     }
-    public void Dismiss()
+    public void Dismiss(bool immediate = false)
     {
         SetSelectable(false);
         int generation = ++_generation;
         if (!IsVisible) return;
         BeginAnimation(OpacityProperty, null);
-        if (!Animate) { _backdrop.Hide(); Hide(); return; }
+        if (immediate || !Animate) { HideContents(); return; }
         var animation = new DoubleAnimation(Opacity, 0, TimeSpan.FromMilliseconds(60));
-        animation.Completed += (_, _) => { if (_generation == generation) { _backdrop.Hide(); Hide(); } };
+        animation.Completed += (_, _) => { if (_generation == generation) HideContents(); };
         BeginAnimation(OpacityProperty, animation);
+    }
+
+    private void HideContents()
+    {
+        _backdrop.Hide();
+        Hide();
+        foreach (var entry in _entries) entry.Clear();
     }
 
     private void SetSelectable(bool selectable)
@@ -145,7 +161,7 @@ public sealed class HudWindow : Window
         MaxWidth = Math.Max(200, (work.Width - 16) / scale);
         UpdateLayout();
         if (ActualWidth > 0 && ActualHeight > 0)
-            Clip = new RectangleGeometry(new Rect(0, 0, ActualWidth, ActualHeight), 9, 9);
+            _clip.Rect = new Rect(0, 0, ActualWidth, ActualHeight);
         int width = (int)Math.Ceiling(ActualWidth * scale);
         int height = (int)Math.Ceiling(Height * scale);
         int gap = (int)Math.Round(_settings.CandidateGap * scale);
@@ -161,13 +177,61 @@ public sealed class HudWindow : Window
         if (HasCompositionBackdrop)
         {
             var tint = ((SolidColorBrush)Application.Current.FindResource("HudGlassBrush")).Color;
-            _surface.Background = new SolidColorBrush(Color.FromArgb(190, tint.R, tint.G, tint.B));
+            _backdropTint.Color = Color.FromArgb(190, tint.R, tint.G, tint.B);
+            _surface.Background = _backdropTint;
             _backdrop.SetOpacity(Opacity);
         }
-        else _backdrop.Hide();
+        else
+        {
+            _backdrop.Hide();
+            _surface.Background = (Brush)Application.Current.FindResource("HudGlassBrush");
+        }
     }
 
     private void OpacityChanged(object? sender, EventArgs e) => _backdrop.SetOpacity(Opacity);
+
+    private sealed class TranslationEntry
+    {
+        internal StackPanel Row { get; }
+        private readonly TextBlock _number;
+        private readonly TextBlock _text = new() { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock _part = new() { FontSize = 11, Opacity = .65, Margin = new Thickness(5, 1, 0, 0) };
+
+        internal TranslationEntry(int index)
+        {
+            Row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(index == 0 ? 0 : 16, 0, 0, 0), Background = Brushes.Transparent
+            };
+            _number = new TextBlock
+            {
+                Text = (index + 1).ToString(), FontSize = 11, Opacity = .5, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 7, 0)
+            };
+            Row.Children.Add(_number);
+            Row.Children.Add(_text);
+            Row.Children.Add(_part);
+        }
+
+        internal void Update(TranslationResult translation, Brush color, double fontSize, double maxWidth, bool showPart)
+        {
+            _number.Foreground = _text.Foreground = _part.Foreground = color;
+            _text.Text = translation.Text;
+            _text.FontSize = fontSize;
+            _text.MaxWidth = maxWidth;
+            _part.Text = showPart ? translation.PartOfSpeech ?? "" : "";
+            _part.Visibility = string.IsNullOrWhiteSpace(_part.Text) ? Visibility.Collapsed : Visibility.Visible;
+            Row.Visibility = Visibility.Visible;
+        }
+
+        internal void Clear()
+        {
+            Row.Visibility = Visibility.Collapsed;
+            _text.Text = "";
+            _part.Text = "";
+        }
+    }
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern nint GetWindowLongPtr(nint hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern nint SetWindowLongPtr(nint hwnd, int index, nint value);

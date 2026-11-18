@@ -8,7 +8,7 @@ Glint 给中文母语者边输入边看译文。你继续用微软拼音、微�
 
 ## 使用
 
-1. 完整解压 `Glint-0.1.6-win-x64.zip` 到固定目录，双击 `Glint.exe`。便携包已包含 .NET 运行环境，无需另装 .NET。
+1. [下载 Windows x64 安装程序](https://github.com/3171248381kerry-cell/Glint-Windows/releases/download/v0.1.7/Glint-0.1.7-win-x64-setup.exe)并双击安装。安装程序包含 .NET 运行环境和英语词典。安装完成后可从开始菜单启动 Glint。
 2. 在“关于”页面输入中文并点击“测试翻译”，或点击“预览翻译栏”检查外观。
 3. 保持 Glint 运行，在记事本等 64 位普通窗口中用微软拼音或微信输入法输入 `nihao`，不要按空格。能确认当前高亮时，译文会显示在候选栏旁。
 4. 需要短句翻译时，在“插件与模型”点击“准备本地模型”。首次联网下载后，OPUS-MT 完全离线运行，无需安装 Python。
@@ -33,7 +33,7 @@ Glint 给中文母语者边输入边看译文。你继续用微软拼音、微�
 ## 支持范围
 
 - Windows 10 22H2 / Windows 11，推荐 Windows 11 x64。实际构建与验证在 Windows x64 完成。
-- 当前学习语言为英语。CC-CEDICT、ECDICT 随程序提供；OPUS-MT 可选安装。
+- 学习语言可在设置中选英语、日语或韩语。英语可直接使用内置 CC-CEDICT、ECDICT 词典，短句可用选装的 OPUS-MT。日语和韩语使用各自的本地模型。
 - Windows ARM64 可从源码构建词典版本，尚未实机验证；可选模型运行环境目前仅支持 x64。
 - 微软拼音依赖输入法公开的可访问性结构。微信输入法读取系统候选接口里的当前高亮。豆包输入法在候选栏出现时读取当前高亮。其他输入法没有明确高亮时不会推测候选。
 - 跳过密码框、终端、不安全或无法确认的焦点、高权限窗口。
@@ -60,15 +60,15 @@ Glint 给中文母语者边输入边看译文。你继续用微软拼音、微�
 
 `run.ps1` 在构建成功后请求旧实例退出，等待新实例完成词典准备并报告就绪。测试报告与各页面渲染图位于 `Artifacts\Windows\self-test`。
 
-生成包含 .NET 的便携包：
+生成包含 .NET 的 Windows x64 安装程序。将 Inno Setup 7 的 `ISCC.exe` 加入 PATH，或通过 `-InnoCompiler` 传入完整路径：
 
 ```powershell
-.\Windows\scripts\publish.ps1
+.\Windows\scripts\publish.ps1 -Installer
 ```
 
-离线构建环境可用 `publish.ps1 -UseInstalledRuntime`，将本机已安装的 .NET 10 桌面运行库完整打入便携包。
+离线构建可加 `-UseInstalledRuntime`，打包本机已安装的 .NET 10 桌面运行库。
 
-输出为 `Windows\dist\Glint-0.1.6-win-x64.zip` 和同名 `.sha256` 文件。
+安装程序和 SHA256 校验文件位于 `Windows\dist`。源码构建时也可省略 `-Installer` 生成便携 ZIP。
 
 ## 署名与许可证
 

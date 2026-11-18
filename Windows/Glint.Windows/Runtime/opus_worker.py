@@ -79,20 +79,14 @@ def load_model(model, lock_path):
 def main():
     root = Path(sys.argv[1]).resolve()
     app = Path(sys.argv[2]).resolve()
+    target = sys.argv[3]
     specs = {
         "en": (root / "mt-opus-zh-en" / "model", app / "Data" / "model-lock.json"),
         "ja": (root / "mt-opus-zh-ja" / "model", app / "Runtime" / "locks" / "ja.json"),
         "ko": (root / "mt-opus-zh-ko" / "model", app / "Runtime" / "locks" / "ko.json"),
     }
-    loaded = {}
-    for target, (model, lock_path) in specs.items():
-        try:
-            if model.is_dir() and lock_path.is_file():
-                loaded[target] = load_model(model, lock_path)
-        except Exception:
-            continue
-    if not loaded:
-        raise RuntimeError("no model")
+    model, lock_path = specs[target]
+    translator, source, decoder = load_model(model, lock_path)
     respond({"ready": True})
     for line in sys.stdin:
         request = None
@@ -101,10 +95,8 @@ def main():
                 raise ValueError("oversize request")
             request = json.loads(line)
             text = request["text"]
-            target = request.get("target", "en")
-            if not isinstance(text, str) or not isinstance(target, str) or not 0 < len(text) <= 200 or target not in loaded:
+            if not isinstance(text, str) or not 0 < len(text) <= 200 or request.get("target", "en") != target:
                 raise ValueError("invalid request")
-            translator, source, decoder = loaded[target]
             tokens = source.encode(text, out_type=str) + ["</s>"]
             result = translator.translate_batch([tokens], beam_size=4, max_decoding_length=128, max_input_length=256, repetition_penalty=1.05)[0]
             pieces = [piece for piece in result.hypotheses[0] if piece not in {"</s>", "<pad>"}]

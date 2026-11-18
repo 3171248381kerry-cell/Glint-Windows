@@ -6,6 +6,7 @@ namespace Glint.Windows.Services;
 public sealed class SpeechService : IDisposable
 {
     private dynamic? _voice;
+    private bool _speechRequested;
     private readonly Dictionary<string, (object Token, int Language)> _tokens = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlyList<string> VoiceNames => NamesFor("en");
     public IReadOnlyList<string> NamesFor(string target)
@@ -52,10 +53,21 @@ public sealed class SpeechService : IDisposable
             _voice.Voice = token;
             _voice.Rate = Math.Clamp(rate, -5, 5);
             _voice.Speak(text, 1 | 2 | 16); // async, purge prior speech, plain text (not SSML)
+            _speechRequested = true;
         }
         catch (COMException) { }
     }
-    public void Stop() { try { _voice?.Speak("", 1 | 2 | 16); } catch (COMException) { } }
+    public void Stop()
+    {
+        if (_voice is null || !_speechRequested) return;
+        try
+        {
+            if (!_voice.WaitUntilDone(0))
+                _voice.Speak((string?)null, 1 | 2); // Purge pending speech without queueing an empty utterance.
+            _speechRequested = false;
+        }
+        catch (COMException) { }
+    }
     public void Dispose()
     {
         Stop();

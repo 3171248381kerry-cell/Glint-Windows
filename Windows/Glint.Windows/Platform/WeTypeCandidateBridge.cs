@@ -34,9 +34,9 @@ internal static class WeTypeCandidateBridge
         accessor.Flush();
     }
 
-    internal static Rect? FindWindow()
+    internal static (nint Handle, Rect Bounds)? FindWindow()
     {
-        Rect? found = null;
+        (nint Handle, Rect Bounds)? found = null;
         NativeMethods.EnumWindows((hwnd, _) =>
         {
             if (!NativeMethods.IsWindowVisible(hwnd) || NativeMethods.WindowClass(hwnd) != "WeType.NativeCandidate.Direct2D.v2") return true;
@@ -52,7 +52,7 @@ internal static class WeTypeCandidateBridge
             if (width is > 0 and < 2400 && height is > 0 and < 900)
             {
                 rect = NativeMethods.VisibleWindowRect(hwnd, rect);
-                found = new Rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+                found = (hwnd, new Rect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top));
             }
             return found is null;
         }, 0);

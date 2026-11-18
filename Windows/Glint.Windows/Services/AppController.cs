@@ -59,6 +59,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     {
         _testMode = testMode;
         Settings = settings ?? AppSettings.Load();
+        if (!testMode) _translations.Model.SelectTarget(Settings.TargetLanguage);
         _hud = new HudWindow(Settings);
         _hud.TranslationSelected += Insert;
         _monitor = new CandidateMonitor(() => Settings.DwellMs);
@@ -78,7 +79,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         if (!_testMode && _translations.IsAvailable && !IsPaused) _monitor.Start();
     }
 
-    private void Invalidate(bool dismiss)
+    private void Invalidate(bool dismiss, bool immediate = false)
     {
         _request?.Cancel();
         _request?.Dispose();
@@ -87,19 +88,20 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         _results = [];
         _hotkeys?.Clear();
         _speech.Stop();
-        if (dismiss) _hud.Dismiss(); else _hud.MarkStale();
+        if (dismiss) _hud.Dismiss(immediate); else _hud.MarkStale();
     }
 
     private async void CandidateChanged(CandidateSnapshot? snapshot)
     {
         if (_disposed || IsPaused) return;
-        if (snapshot is null) { Invalidate(true); return; }
+        if (snapshot is null) { Invalidate(true, immediate: true); return; }
         if (_monitor.CurrentSnapshot is not { } current || current.Revision != snapshot.Revision) return;
         _preview?.Cancel();
-        if (_snapshot?.Revision == snapshot.Revision && _results.Count > 0)
+        if (_snapshot?.Revision == snapshot.Revision)
         {
             _snapshot = snapshot;
-            _hud.Present(_results, snapshot.Bounds, snapshot.InputLine, snapshot.Source, allowSelection: true);
+            if (_results.Count > 0)
+                _hud.Reposition(snapshot.Bounds, snapshot.InputLine, snapshot.Source);
             return;
         }
         Invalidate(false);
@@ -223,8 +225,13 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         else if (args.PropertyName == nameof(AppSettings.AutoSpeak) && !Settings.AutoSpeak) _speech.Stop();
         if (args.PropertyName is nameof(AppSettings.TranslationMode) or nameof(AppSettings.DwellMs) or nameof(AppSettings.TargetLanguage))
         {
-            Notify(nameof(TranslationStatus));
             Invalidate(true);
+            if (args.PropertyName == nameof(AppSettings.TargetLanguage))
+            {
+                _preview?.Cancel();
+                _translations.Model.SelectTarget(Settings.TargetLanguage);
+            }
+            Notify(nameof(TranslationStatus));
             if (!_testMode && !IsPaused) { _monitor.Stop(); _monitor.Start(); }
         }
         else if (_snapshot is { } snapshot && _results.Count > 0) { _hud.Present(_results, snapshot.Bounds, snapshot.InputLine, snapshot.Source, allowSelection: true); RegisterCandidateHotkeys(); }

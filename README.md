@@ -22,15 +22,40 @@
 
 macOS 原版的网站、GitHub Releases 和 Homebrew 属于上游项目。需要官方 macOS 版时，请直接使用上面的原仓库。
 
-## 用途
+## 下载 Windows 版
 
-Glint 给中文母语者边输入边看译文。你继续用自己的输入法打字，它不接管键盘，也不读取输入框里已经写下的正文。当前高亮的拼音候选停住后，对应译文出现在候选栏旁边。
+当前版本 **0.1.7**，适用于 Windows 10 22H2 / Windows 11 x64。
 
-可以看单词、短语和短句。学习语言可选英语、日语或韩语。英语词语优先用随程序提供的词典，词典没有的说法和短句可以用可选的本地模型翻译。日语和韩语目前由各自的本地模型翻译。译文可以朗读，也可以插入到正在输入的位置。候选原文和翻译结果都不会保存。
+[直接下载 Windows x64 安装程序](https://github.com/3171248381kerry-cell/Glint-Windows/releases/download/v0.1.7/Glint-0.1.7-win-x64-setup.exe) · [GitHub 发布页](https://github.com/3171248381kerry-cell/Glint-Windows/releases/tag/v0.1.7)
+
+下载后双击安装程序。安装完成后可从开始菜单打开 Glint，立即使用内置英语词典。用微软拼音、微信输入法或豆包输入法输入 `nihao`，停在当前候选上即可查看译文。
+
+## 特点
+
+- **随手可见**：在拼音候选旁显示当前目标语言译文，不打断输入。
+- **覆盖词句**：支持常用词语、短语和短句翻译。
+- **词性提示**：英语词典译文可显示简洁的英文词性缩写。
+- **离线可用**：英语词典随包提供。短句以及日语、韩语翻译可在“插件与模型”中准备对应模型，下载完成后在本机运行。
+- **插入与朗读**：可用快捷键或鼠标插入译文，也可手动或自动朗读。
+- **自由调整**：可设置译文数量、翻译栏外观、朗读语速和登录启动。
+- **隐私友好**：仅读取当前高亮候选，不读取输入框正文或保存翻译历史。
+
+部分功能说明沿用 [Glint 原版 README](https://github.com/jsogn/Glint/blob/c243b461515bf8aa7ee222cb5f68afedf9915cea/README.md)，并按 Windows 版实际支持的功能调整。
+
+## 0.1.7 更新
+
+- 新增 Windows x64 安装程序
+- 优化本地模型冷启动速度和内存占用
+- 优化英语单词与短语的词典响应
+- 优化词典未命中时的模型回退
+- 优化翻译栏移动与更新时的资源开销
+- 修复微软拼音首次展开时部分高亮候选识别不到的问题
+- 修复收起候选栏后译文可能短暂残留的问题
+- 优化微信输入法候选识别支持
 
 ## 这个仓库
 
-本仓库在上游源码之上增加 Windows 移植，并保留原有 macOS 工程，方便对照和继续同步。当前 Windows 预览版是 **0.1.6**。使用、快捷键和支持范围见 [Windows 移植说明](Windows/README.md)，实现边界见 [docs/WINDOWS-PORT.md](docs/WINDOWS-PORT.md)。
+本仓库在上游源码之上增加 Windows 移植，并保留原有 macOS 工程，方便对照和继续同步。使用、快捷键和支持范围见 [Windows 移植说明](Windows/README.md)，实现边界见 [docs/WINDOWS-PORT.md](docs/WINDOWS-PORT.md)。
 
 ## 相对上游的修改
 
@@ -55,10 +80,10 @@ Windows 端是按原模块职责重写的平台适配，macOS 的 Swift、AppKit
 .\Windows\scripts\run.ps1
 ```
 
-便携包：
+生成安装程序需要 Inno Setup 7。将 `ISCC.exe` 加入 PATH 后执行：
 
 ```powershell
-.\Windows\scripts\publish.ps1
+.\Windows\scripts\publish.ps1 -Installer
 ```
 
 ## 开源协议

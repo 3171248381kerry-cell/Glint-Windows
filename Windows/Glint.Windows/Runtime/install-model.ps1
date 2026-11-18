@@ -105,7 +105,7 @@ try {
     }
     $worker = Join-Path $PSScriptRoot 'opus_worker.py'
     $appBase = Split-Path $PSScriptRoot -Parent
-    $proof = @('{"id":0,"text":"你好","target":"en"}') | & (Join-Path $pythonDirectory 'python.exe') -I -u $worker $stageDirectory $appBase
+    $proof = @('{"id":0,"text":"你好","target":"en"}') | & (Join-Path $pythonDirectory 'python.exe') -I -u $worker $stageDirectory $appBase en
     if ($LASTEXITCODE -ne 0 -or $proof.Count -ne 2 -or -not ($proof[0] | ConvertFrom-Json).ready -or -not ($proof[1] | ConvertFrom-Json).text) {
         throw 'Offline model could not run. Install the Microsoft Visual C++ 2015-2022 x64 runtime and retry.'
     }
