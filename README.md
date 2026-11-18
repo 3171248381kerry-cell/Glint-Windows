@@ -53,6 +53,15 @@ macOS 原版的网站、GitHub Releases 和 Homebrew 属于上游项目。需要
 
 部分功能说明沿用 [Glint 原版 README](https://github.com/jsogn/Glint/blob/c243b461515bf8aa7ee222cb5f68afedf9915cea/README.md)，并按 Windows 版实际支持的功能调整。
 
+## 输入法支持
+
+| 输入法 | 支持状态 |
+| --- | --- |
+| 微软拼音（Windows 自带） | 已支持 |
+| 微信输入法 | 已支持（64 位应用） |
+| 豆包输入法 | 已支持 |
+| 其他输入法 | 正在适配 |
+
 ## 0.1.7 更新
 
 - 新增 Windows x64 安装程序
